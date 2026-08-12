@@ -1,0 +1,21 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.log
+# C++ & CMake
+build/
+bin/
+*.obj
+*.exe
+*.so
+*.pyd
+*.dll
+# IDEs & System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+# Environment Secrets
+.env
