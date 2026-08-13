@@ -10,8 +10,8 @@ document.addEventListener('DOMContentLoaded', () => {
             this.globalWs = null;
             this.currentAgentId = null;
             this.agentStreams = new Set();
-            this.totalTokensAcc = 0;
-            this.totalCostAcc = 0.0;
+            this.globalTokensAcc = 0;
+            this.globalCostAcc = 0.0;
             this.eventCount = 0;
             this.lastStepId = null;
             this.activeToolStepId = null;
@@ -74,6 +74,18 @@ document.addEventListener('DOMContentLoaded', () => {
             
             this.globalWs.on('WS_CONNECTED', (evt) => {
                 this.appendLog('STARTED', 'Connected to global platform event stream.');
+            });
+
+            this.globalWs.on('BUDGET_UPDATE', (evt) => {
+                const data = evt.data;
+                if (data.turn_tokens) {
+                    this.globalTokensAcc += data.turn_tokens;
+                    this.statTotalTokens.textContent = this.globalTokensAcc.toLocaleString();
+                }
+                if (data.turn_cost_usd) {
+                    this.globalCostAcc += data.turn_cost_usd;
+                    this.statTotalCost.textContent = `$${this.globalCostAcc.toFixed(4)}`;
+                }
             });
 
             this.globalWs.connect();
@@ -202,18 +214,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 }
                 this.appendLog('COMPLETED', `Tool '${data.tool_name}' executed successfully.`);
-            });
-
-            this.activeWs.on('BUDGET_UPDATE', (evt) => {
-                const data = evt.data;
-                if (data.total_tokens) {
-                    this.totalTokensAcc = data.total_tokens;
-                    this.statTotalTokens.textContent = this.totalTokensAcc.toLocaleString();
-                }
-                if (data.total_spend_usd) {
-                    this.totalCostAcc = data.total_spend_usd;
-                    this.statTotalCost.textContent = `$${this.totalCostAcc.toFixed(4)}`;
-                }
             });
 
             this.activeWs.on('AGENT_STATE_CHANGE', (evt) => {

@@ -24,7 +24,6 @@ class TokenBudgetManager:
     to track cumulative token spend per agent and enforce strict spend rate ceilings.
     """
 
-    # Model Pricing Table per 1,000,000 tokens (USD)
     MODEL_PRICING: Dict[str, Dict[str, float]] = {
         "gemini-2.5-flash": {"prompt": 0.075, "completion": 0.30},
         "gemini-1.5-flash": {"prompt": 0.075, "completion": 0.30},
@@ -50,9 +49,6 @@ class TokenBudgetManager:
         return f"agent:{agent_id}:tokens"
 
     def calculate_cost(self, prompt_tokens: int, completion_tokens: int, model: str) -> float:
-        """
-        Calculates exact dollar cost for a turn given prompt & completion token counts.
-        """
         pricing = self.MODEL_PRICING.get(model, self.MODEL_PRICING["default"])
         prompt_cost = (prompt_tokens / 1_000_000.0) * pricing["prompt"]
         completion_cost = (completion_tokens / 1_000_000.0) * pricing["completion"]
@@ -66,10 +62,6 @@ class TokenBudgetManager:
         max_budget_usd: float,
         model: str = "gemini-2.5-flash"
     ) -> Dict[str, Any]:
-        """
-        Atomically increments token & spend counters in Redis and checks against budget ceiling.
-        Throws BudgetExceededException if max_budget_usd is exceeded.
-        """
         client = await self._get_client()
         turn_cost = self.calculate_cost(prompt_tokens, completion_tokens, model)
         total_tokens_turn = prompt_tokens + completion_tokens
@@ -77,7 +69,6 @@ class TokenBudgetManager:
         spend_key = self._make_spend_key(agent_id)
         tokens_key = self._make_tokens_key(agent_id)
 
-        # Atomic Redis increment
         async with client.pipeline(transaction=True) as pipe:
             pipe.incrbyfloat(spend_key, turn_cost)
             pipe.incrby(tokens_key, total_tokens_turn)
@@ -89,6 +80,7 @@ class TokenBudgetManager:
         summary = {
             "agent_id": agent_id,
             "turn_cost_usd": turn_cost,
+            "turn_tokens": total_tokens_turn,
             "total_spend_usd": new_total_spend,
             "total_tokens": new_total_tokens,
             "max_budget_usd": max_budget_usd,
@@ -105,9 +97,6 @@ class TokenBudgetManager:
         return summary
 
     async def get_summary(self, agent_id: str, max_budget_usd: float) -> Dict[str, Any]:
-        """
-        Retrieves active spend metrics for an agent from Redis without mutating counters.
-        """
         client = await self._get_client()
         spend_key = self._make_spend_key(agent_id)
         tokens_key = self._make_tokens_key(agent_id)
@@ -127,9 +116,6 @@ class TokenBudgetManager:
         }
 
     async def reset_budget(self, agent_id: str) -> None:
-        """
-        Clears budget spend tracking keys for an agent.
-        """
         client = await self._get_client()
         spend_key = self._make_spend_key(agent_id)
         tokens_key = self._make_tokens_key(agent_id)
