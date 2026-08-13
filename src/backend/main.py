@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from src.backend.config import settings
 from src.backend.db.database import init_sqlite_db, close_redis_pool
 from src.backend.db.repository import TraceRepository
-from src.backend.engine.models import AgentConfig, AgentState
+from src.backend.engine.models import AgentConfig, AgentState, StepNodeType
 from src.backend.engine.orchestrator import AsyncTaskGraphEngine
 from src.backend.websocket.manager import ws_manager
 
@@ -89,6 +89,7 @@ async def health_check() -> Dict[str, str]:
 async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
     """
     Real-time WebSocket endpoint streaming agent execution trace DAG events to browser dashboard.
+    Replays step history for fast (<20ms) sub-task executions.
     """
     await ws_manager.connect(websocket, agent_id)
     try:
@@ -100,6 +101,68 @@ async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
             },
             websocket
         )
+
+        # Replay historical step events if agent completed before connection established
+        if agent_id != "global":
+            checkpoint = await engine.checkpointer.load_checkpoint(agent_id)
+            if checkpoint:
+                last_step_id = None
+                for step in checkpoint.history:
+                    if step.node_type != StepNodeType.TOOL_EXECUTION:
+                        last_step_id = step.step_id
+                        await ws_manager.send_personal_message({
+                            "event_type": "STEP_EXECUTION_STARTED",
+                            "agent_id": agent_id,
+                            "timestamp": checkpoint.updated_at,
+                            "data": {
+                                "step_id": step.step_id,
+                                "node_type": step.node_type.value,
+                                "prompt_tokens": step.prompt_tokens
+                            }
+                        }, websocket)
+                    else:
+                        tool_name = step.input_payload.get("tool_name", "tool")
+                        await ws_manager.send_personal_message({
+                            "event_type": "TOOL_CALL_DISPATCHED",
+                            "agent_id": agent_id,
+                            "timestamp": checkpoint.updated_at,
+                            "data": {
+                                "tool_name": tool_name,
+                                "params": step.input_payload.get("params", {}),
+                                "parent_step_id": last_step_id
+                            }
+                        }, websocket)
+
+                        await ws_manager.send_personal_message({
+                            "event_type": "TOOL_CALL_COMPLETED",
+                            "agent_id": agent_id,
+                            "timestamp": checkpoint.updated_at,
+                            "data": {
+                                "tool_name": tool_name,
+                                "output": step.output_payload
+                            }
+                        }, websocket)
+
+                await ws_manager.send_personal_message({
+                    "event_type": "BUDGET_UPDATE",
+                    "agent_id": agent_id,
+                    "timestamp": checkpoint.updated_at,
+                    "data": {
+                        "total_tokens": checkpoint.accumulated_tokens,
+                        "total_spend_usd": checkpoint.accumulated_cost_usd
+                    }
+                }, websocket)
+
+                await ws_manager.send_personal_message({
+                    "event_type": "EXECUTION_TERMINATED",
+                    "agent_id": agent_id,
+                    "timestamp": checkpoint.updated_at,
+                    "data": {
+                        "status": checkpoint.status.value,
+                        "duration_ms": 50,
+                        "final_trace_id": agent_id
+                    }
+                }, websocket)
 
         while True:
             data = await websocket.receive_json()
