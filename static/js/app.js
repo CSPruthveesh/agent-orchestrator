@@ -76,7 +76,6 @@ document.addEventListener('DOMContentLoaded', () => {
             
             this.globalWs.on('WS_CONNECTED', (evt) => {
                 this.appendLog('STARTED', 'Connected to global platform event stream.');
-                this.fetchTelemetrySummary();
             });
 
             this.globalWs.on('BUDGET_UPDATE', (evt) => {
@@ -84,22 +83,20 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             this.globalWs.connect();
-            this.fetchTelemetrySummary();
+            this.initSessionTelemetry();
         }
 
-        async fetchTelemetrySummary() {
+        async initSessionTelemetry() {
+            this.globalPlatformTokens = 0;
+            this.globalPlatformSpendUsd = 0.0;
+            this.statTotalTokens.textContent = '0';
+            this.statTotalCost.textContent = '$0.0000';
+            this.statActiveAgents.textContent = '0';
+
             try {
-                const res = await fetch('/api/v1/telemetry/summary');
-                if (res.ok) {
-                    const data = await res.json();
-                    this.globalPlatformTokens = data.total_tokens || 0;
-                    this.globalPlatformSpendUsd = data.total_cost_usd || 0.0;
-                    this.statTotalTokens.textContent = this.globalPlatformTokens.toLocaleString();
-                    this.statTotalCost.textContent = `$${this.globalPlatformSpendUsd.toFixed(4)}`;
-                    this.statActiveAgents.textContent = this.agentStreams.size;
-                }
+                await fetch('/api/v1/telemetry/reset', { method: 'POST' });
             } catch (err) {
-                console.warn('[Dashboard] Telemetry summary fetch warning:', err);
+                console.warn('[Dashboard] Failed to reset session telemetry:', err);
             }
         }
 
