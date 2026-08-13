@@ -163,7 +163,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.agentStreams.add(agentId);
                 this.updateActiveAgentDropdown(agentId);
                 this.subscribeToAgentStream(agentId);
-                this.fetchTelemetrySummary();
 
             } catch (err) {
                 console.error('[Dashboard] Launch error:', err);
