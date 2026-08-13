@@ -14,6 +14,10 @@ document.addEventListener('DOMContentLoaded', () => {
             this.lastStepId = null;
             this.activeToolStepId = null;
 
+            // Global platform cumulative counters across all agents
+            this.globalPlatformTokens = 0;
+            this.globalPlatformSpendUsd = 0.0;
+
             this.initDOM();
             this.initDAG();
             this.bindEvents();
@@ -75,20 +79,21 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             this.globalWs.on('BUDGET_UPDATE', (evt) => {
-                this.updateBudgetHeader(evt.data || evt);
+                const data = evt.data || evt;
+                const turnTokens = data.turn_tokens || 0;
+                const turnCost = data.turn_cost_usd || 0.0;
+
+                if (turnTokens > 0) {
+                    this.globalPlatformTokens += turnTokens;
+                    this.statTotalTokens.textContent = this.globalPlatformTokens.toLocaleString();
+                }
+                if (turnCost > 0) {
+                    this.globalPlatformSpendUsd += turnCost;
+                    this.statTotalCost.textContent = `$${this.globalPlatformSpendUsd.toFixed(4)}`;
+                }
             });
 
             this.globalWs.connect();
-        }
-
-        updateBudgetHeader(data) {
-            if (!data) return;
-            if (data.total_tokens !== undefined && data.total_tokens !== null) {
-                this.statTotalTokens.textContent = data.total_tokens.toLocaleString();
-            }
-            if (data.total_spend_usd !== undefined && data.total_spend_usd !== null) {
-                this.statTotalCost.textContent = `$${data.total_spend_usd.toFixed(4)}`;
-            }
         }
 
         async handleLaunchAgent(e) {
@@ -214,10 +219,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 }
                 this.appendLog('COMPLETED', `Tool '${data.tool_name}' executed successfully.`);
-            });
-
-            this.activeWs.on('BUDGET_UPDATE', (evt) => {
-                this.updateBudgetHeader(evt.data || evt);
             });
 
             this.activeWs.on('AGENT_STATE_CHANGE', (evt) => {
