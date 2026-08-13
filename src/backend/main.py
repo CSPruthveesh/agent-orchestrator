@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -11,11 +11,20 @@ from src.backend.db.database import init_sqlite_db, close_redis_pool
 from src.backend.db.repository import TraceRepository
 from src.backend.engine.models import AgentConfig, AgentState
 from src.backend.engine.orchestrator import AsyncTaskGraphEngine
+from src.backend.websocket.manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
-# Engine instance singleton
-engine = AsyncTaskGraphEngine()
+# Engine instance singleton with WebSocket event publisher hook
+async def _ws_event_publisher(agent_id: str, event: Dict[str, Any]) -> None:
+    """
+    Relays orchestrator execution events to subscribed WebSocket client connections.
+    """
+    await ws_manager.broadcast_to_agent(agent_id, event)
+    await ws_manager.broadcast_global(event)
+
+
+engine = AsyncTaskGraphEngine(event_publisher=_ws_event_publisher)
 
 
 @asynccontextmanager
@@ -56,6 +65,38 @@ async def health_check() -> Dict[str, str]:
         "project": settings.PROJECT_NAME,
         "environment": settings.ENVIRONMENT
     }
+
+
+@app.websocket("/ws/traces/{agent_id}")
+async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
+    """
+    Real-time WebSocket endpoint streaming agent execution trace DAG events to browser dashboard.
+    """
+    await ws_manager.connect(websocket, agent_id)
+    try:
+        # Send initial connected greeting
+        await ws_manager.send_personal_message(
+            {
+                "event_type": "WS_CONNECTED",
+                "agent_id": agent_id,
+                "message": f"Subscribed to real-time execution trace stream for agent '{agent_id}'"
+            },
+            websocket
+        )
+
+        while True:
+            data = await websocket.receive_json()
+            # Handle inbound client commands (e.g. ping, cancel)
+            if data.get("type") == "PING":
+                await ws_manager.send_personal_message({"type": "PONG"}, websocket)
+            elif data.get("type") == "CANCEL_EXECUTION":
+                await engine.cancel_agent(agent_id, reason="Cancelled via WebSocket")
+
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(websocket, agent_id)
+    except Exception as e:
+        logger.warning(f"WebSocket trace connection error for agent '{agent_id}': {e}")
+        await ws_manager.disconnect(websocket, agent_id)
 
 
 @app.post(

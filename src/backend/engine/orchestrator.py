@@ -28,42 +28,51 @@ class AsyncTaskGraphEngine:
     Core Async Task Graph Execution Engine.
     Orchestrates agent lifecycles, manages asyncio.Task execution loops,
     enforces per-step Redis checkpointing, meters token spend budgets,
-    and persists finished execution traces into SQLite.
+    publishes real-time WebSocket trace events, and persists finished traces into SQLite.
     """
 
     def __init__(
         self,
         redis_client: Optional[aioredis.Redis] = None,
         trace_repo: Optional[TraceRepository] = None,
-        tool_dispatcher: Optional[Callable[[ToolCallRequest], Any]] = None
+        tool_dispatcher: Optional[Callable[[ToolCallRequest], Any]] = None,
+        event_publisher: Optional[Callable[[str, Dict[str, Any]], Any]] = None
     ):
         self.redis_client = redis_client
         self.checkpointer = RedisStateCheckpointer(redis_client=redis_client)
         self.budget_manager = TokenBudgetManager(redis_client=redis_client)
         self.trace_repo = trace_repo or TraceRepository()
         self.tool_dispatcher = tool_dispatcher
+        self.event_publisher = event_publisher
 
         # Active running asyncio Tasks mapped by agent_id
         self._active_tasks: Dict[str, asyncio.Task] = {}
         # Active agent state objects mapped by agent_id
         self._active_states: Dict[str, AgentState] = {}
 
-    async def _get_client(self) -> aioredis.Redis:
-        if self.redis_client is not None:
-            return self.redis_client
-        return await get_redis_client()
+    async def _publish_event(self, agent_id: str, event_type: str, data: Dict[str, Any]) -> None:
+        """
+        Helper method to emit real-time event payloads to active WebSocket subscribers.
+        """
+        if self.event_publisher:
+            event_payload = {
+                "event_type": event_type,
+                "agent_id": agent_id,
+                "timestamp": time.time(),
+                "data": data
+            }
+            try:
+                res = self.event_publisher(agent_id, event_payload)
+                if asyncio.iscoroutine(res):
+                    await res
+            except Exception as e:
+                logger.warning(f"Error publishing WebSocket event: {e}")
 
     def is_agent_running(self, agent_id: str) -> bool:
-        """
-        Returns True if the agent task is actively running.
-        """
         task = self._active_tasks.get(agent_id)
         return task is not None and not task.done()
 
     async def start_agent_task(self, config: AgentConfig) -> asyncio.Task:
-        """
-        Spawns and manages an async background asyncio.Task for the agent.
-        """
         if self.is_agent_running(config.agent_id):
             raise RuntimeError(f"Agent '{config.agent_id}' is already running.")
 
@@ -75,9 +84,6 @@ class AsyncTaskGraphEngine:
         return task
 
     async def cancel_agent(self, agent_id: str, reason: str = "User requested cancellation") -> bool:
-        """
-        Cancels an actively running agent task and updates state in Redis.
-        """
         task = self._active_tasks.get(agent_id)
         if task and not task.done():
             task.cancel()
@@ -86,13 +92,14 @@ class AsyncTaskGraphEngine:
                 state.status = AgentStatus.SUSPENDED
                 state.context_data["cancellation_reason"] = reason
                 await self.checkpointer.save_checkpoint(state)
+                await self._publish_event(agent_id, "EXECUTION_TERMINATED", {
+                    "status": "CANCELLED",
+                    "reason": reason
+                })
             return True
         return False
 
     async def execute_agent_loop(self, config: AgentConfig) -> AgentState:
-        """
-        Main execution loop for an agent turn-by-turn processing graph.
-        """
         start_time = time.time()
         agent_id = config.agent_id
 
@@ -111,9 +118,13 @@ class AsyncTaskGraphEngine:
         self._active_states[agent_id] = state
         await self.checkpointer.save_checkpoint(state)
 
+        await self._publish_event(agent_id, "AGENT_STATE_CHANGE", {
+            "state": state.status.value,
+            "current_step": state.current_step_index
+        })
+
         try:
-            # 2. Simulated / Modular Execution Turns
-            # Turn 1: Initial LLM Reasoning Step
+            # Turn 1: LLM Reasoning Step
             step1 = ExecutionStep(
                 agent_id=agent_id,
                 node_type=StepNodeType.SUPERVISOR_PROMPT if not config.parent_agent_id else StepNodeType.WORKER_PROMPT,
@@ -123,7 +134,12 @@ class AsyncTaskGraphEngine:
                 completion_tokens=75
             )
 
-            # Record turn budget usage
+            await self._publish_event(agent_id, "STEP_EXECUTION_STARTED", {
+                "step_id": step1.step_id,
+                "node_type": step1.node_type.value,
+                "prompt_tokens": step1.prompt_tokens
+            })
+
             budget_res = await self.budget_manager.record_usage_and_check(
                 agent_id=agent_id,
                 prompt_tokens=step1.prompt_tokens,
@@ -138,7 +154,9 @@ class AsyncTaskGraphEngine:
             state.accumulated_cost_usd = budget_res["total_spend_usd"]
             await self.checkpointer.save_checkpoint(state)
 
-            # Turn 2: Tool Execution Step (if tools provided)
+            await self._publish_event(agent_id, "BUDGET_UPDATE", budget_res)
+
+            # Turn 2: Tool Execution Step
             if config.available_tools:
                 state.status = AgentStatus.WAITING_FOR_TOOL
                 await self.checkpointer.save_checkpoint(state)
@@ -149,9 +167,19 @@ class AsyncTaskGraphEngine:
                     params={"goal": config.goal, "command": "echo Sandbox Execution Success"}
                 )
 
+                await self._publish_event(agent_id, "TOOL_CALL_DISPATCHED", {
+                    "tool_name": tool_name,
+                    "params": tool_req.params
+                })
+
                 tool_output: Any = {"status": "SUCCESS", "message": f"Executed tool {tool_name}"}
                 if self.tool_dispatcher:
                     tool_output = await self.tool_dispatcher(tool_req)
+
+                await self._publish_event(agent_id, "TOOL_CALL_COMPLETED", {
+                    "tool_name": tool_name,
+                    "output": tool_output if isinstance(tool_output, dict) else {"result": str(tool_output)}
+                })
 
                 step2 = ExecutionStep(
                     parent_step_id=step1.step_id,
@@ -177,12 +205,13 @@ class AsyncTaskGraphEngine:
                 state.accumulated_cost_usd = budget_res2["total_spend_usd"]
                 await self.checkpointer.save_checkpoint(state)
 
-            # 3. Finalize Successful Execution
+                await self._publish_event(agent_id, "BUDGET_UPDATE", budget_res2)
+
+            # Finalize Execution
             state.status = AgentStatus.COMPLETED
             duration_ms = int((time.time() - start_time) * 1000)
             await self.checkpointer.save_checkpoint(state)
 
-            # 4. Save durable trace into SQLite
             trace_id = str(uuid.uuid4())
             await self.trace_repo.save_trace(
                 trace_id=trace_id,
@@ -197,33 +226,48 @@ class AsyncTaskGraphEngine:
                 trace_data=state.model_dump()
             )
 
+            await self._publish_event(agent_id, "EXECUTION_TERMINATED", {
+                "status": "COMPLETED",
+                "duration_ms": duration_ms,
+                "final_trace_id": trace_id
+            })
+
             return state
 
         except BudgetExceededException as e:
             state.status = AgentStatus.BUDGET_EXCEEDED
             state.context_data["error"] = str(e)
             await self.checkpointer.save_checkpoint(state)
+            await self._publish_event(agent_id, "EXECUTION_TERMINATED", {
+                "status": "BUDGET_EXCEEDED",
+                "error": str(e)
+            })
             raise
 
         except asyncio.CancelledError:
             state.status = AgentStatus.SUSPENDED
             state.context_data["status_reason"] = "Task cancelled"
             await self.checkpointer.save_checkpoint(state)
+            await self._publish_event(agent_id, "EXECUTION_TERMINATED", {
+                "status": "SUSPENDED",
+                "reason": "Task cancelled"
+            })
             raise
 
         except Exception as e:
             state.status = AgentStatus.FAILED
             state.context_data["error"] = str(e)
             await self.checkpointer.save_checkpoint(state)
+            await self._publish_event(agent_id, "EXECUTION_TERMINATED", {
+                "status": "FAILED",
+                "error": str(e)
+            })
             raise
 
         finally:
             self._active_tasks.pop(agent_id, None)
 
     async def resume_agent(self, agent_id: str, config: AgentConfig) -> AgentState:
-        """
-        Resumes an agent execution loop from its Redis Hash checkpoint (<2 sec recovery).
-        """
         checkpoint = await self.checkpointer.load_checkpoint(agent_id)
         if checkpoint is None:
             raise ValueError(f"No state checkpoint found for agent '{agent_id}' to resume.")

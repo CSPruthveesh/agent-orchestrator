@@ -21,6 +21,22 @@ def test_health_check_endpoint(client):
     assert "Async AI Agent" in data["project"]
 
 
+def test_websocket_trace_connection(client):
+    """
+    Asserts real-time WebSocket connection endpoint accepts subscriptions.
+    """
+    agent_id = "test-ws-client-001"
+    with client.websocket_connect(f"/ws/traces/{agent_id}") as websocket:
+        data = websocket.receive_json()
+        assert data["event_type"] == "WS_CONNECTED"
+        assert data["agent_id"] == agent_id
+
+        # Test PING/PONG
+        websocket.send_json({"type": "PING"})
+        pong = websocket.receive_json()
+        assert pong["type"] == "PONG"
+
+
 @pytest.mark.asyncio
 async def test_agent_run_rest_endpoint():
     """
