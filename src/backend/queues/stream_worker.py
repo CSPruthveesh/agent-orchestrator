@@ -14,11 +14,16 @@ CONSUMER_GROUP_TOOL_WORKERS = "group:tool_workers"
 
 class ToolStreamProducer:
     """
-    Publishes tool call invocation requests to Redis Stream `stream:tool_calls`.
+    Publishes tool call invocation requests to Redis Stream.
     """
 
-    def __init__(self, redis_client: Optional[aioredis.Redis] = None):
+    def __init__(
+        self,
+        redis_client: Optional[aioredis.Redis] = None,
+        stream_name: str = STREAM_TOOL_CALLS
+    ):
         self.redis_client = redis_client
+        self.stream_name = stream_name
 
     async def _get_client(self) -> aioredis.Redis:
         if self.redis_client is not None:
@@ -47,16 +52,16 @@ class ToolStreamProducer:
         }
 
         message_id = await client.xadd(
-            name=STREAM_TOOL_CALLS,
+            name=self.stream_name,
             fields=entry_payload
         )
-        logger.info(f"Published tool request '{request.tool_name}' for agent '{agent_id}' -> Message ID: {message_id}")
+        logger.info(f"Published tool request '{request.tool_name}' for agent '{agent_id}' to stream '{self.stream_name}' -> Message ID: {message_id}")
         return message_id
 
 
 class ToolStreamWorker:
     """
-    Consumer group worker reading tool execution requests from Redis Stream `stream:tool_calls`,
+    Consumer group worker reading tool execution requests from Redis Stream,
     dispatching execution, and acknowledging (`xack`) completed items.
     """
 
@@ -169,8 +174,5 @@ class ToolStreamWorker:
                 logger.error(f"Worker loop error: {e}")
                 await asyncio.sleep(1)
 
-    def stop() -> None:
-        """
-        Signals worker loop to stop.
-        """
+    def stop(self) -> None:
         self._running = False

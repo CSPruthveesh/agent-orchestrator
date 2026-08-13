@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import warnings
 from typing import Dict, Any, Optional
 from src.backend.config import settings
 
@@ -19,9 +20,20 @@ class AsyncLLMGateway:
         openai_api_key: Optional[str] = None,
         anthropic_api_key: Optional[str] = None
     ):
-        self.gemini_api_key = gemini_api_key or settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")
-        self.openai_api_key = openai_api_key or settings.OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY")
-        self.anthropic_api_key = anthropic_api_key or settings.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY")
+        if gemini_api_key is not None:
+            self.gemini_api_key = gemini_api_key
+        else:
+            self.gemini_api_key = settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY", "")
+
+        if openai_api_key is not None:
+            self.openai_api_key = openai_api_key
+        else:
+            self.openai_api_key = settings.OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY", "")
+
+        if anthropic_api_key is not None:
+            self.anthropic_api_key = anthropic_api_key
+        else:
+            self.anthropic_api_key = settings.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY", "")
 
     async def generate_reasoning_step(
         self,
@@ -36,15 +48,14 @@ class AsyncLLMGateway:
         target_model = model or settings.DEFAULT_LLM_MODEL
 
         # 1. Google Gemini API Provider (Primary Free Tier)
-        if "gemini" in target_model.lower() or (self.gemini_api_key and not self.openai_api_key):
-            if self.gemini_api_key:
-                try:
-                    return await self._call_gemini_api(prompt, target_model, system_instruction)
-                except Exception as e:
-                    logger.warning(f"Gemini API call failed, falling back to mock provider: {e}")
+        if bool(self.gemini_api_key) and ("gemini" in target_model.lower() or not self.openai_api_key):
+            try:
+                return await self._call_gemini_api(prompt, target_model, system_instruction)
+            except Exception as e:
+                logger.warning(f"Gemini API call failed, falling back to mock provider: {e}")
 
         # 2. OpenAI API Provider
-        if "gpt" in target_model.lower() and self.openai_api_key:
+        if bool(self.openai_api_key) and "gpt" in target_model.lower():
             try:
                 return await self._call_openai_api(prompt, target_model, system_instruction)
             except Exception as e:
@@ -65,28 +76,30 @@ class AsyncLLMGateway:
         loop = asyncio.get_running_loop()
 
         def _sync_gemini_call():
-            import google.generativeai as genai
-            genai.configure(api_key=self.gemini_api_key)
-            g_model = genai.GenerativeModel(
-                model_name=model,
-                system_instruction=system_instruction
-            )
-            response = g_model.generate_content(prompt)
-            
-            # Extract usage metadata if present
-            prompt_tokens = 150
-            completion_tokens = 75
-            if hasattr(response, "usage_metadata") and response.usage_metadata:
-                prompt_tokens = getattr(response.usage_metadata, "prompt_token_count", 150)
-                completion_tokens = getattr(response.usage_metadata, "candidates_token_count", 75)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=FutureWarning)
+                import google.generativeai as genai
+                genai.configure(api_key=self.gemini_api_key)
+                g_model = genai.GenerativeModel(
+                    model_name=model,
+                    system_instruction=system_instruction
+                )
+                response = g_model.generate_content(prompt)
+                
+                # Extract usage metadata if present
+                prompt_tokens = 150
+                completion_tokens = 75
+                if hasattr(response, "usage_metadata") and response.usage_metadata:
+                    prompt_tokens = getattr(response.usage_metadata, "prompt_token_count", 150)
+                    completion_tokens = getattr(response.usage_metadata, "candidates_token_count", 75)
 
-            return {
-                "text": response.text,
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "model": model,
-                "provider": "google-gemini-free-tier"
-            }
+                return {
+                    "text": response.text,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "model": model,
+                    "provider": "google-gemini-free-tier"
+                }
 
         return await loop.run_in_executor(None, _sync_gemini_call)
 
@@ -96,9 +109,6 @@ class AsyncLLMGateway:
         model: str,
         system_instruction: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        Executes async call to OpenAI API.
-        """
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=self.openai_api_key)
 
@@ -124,9 +134,6 @@ class AsyncLLMGateway:
         }
 
     def _generate_mock_reasoning(self, prompt: str, model: str) -> Dict[str, Any]:
-        """
-        Generates simulated reasoning output for dry-runs when API keys are absent.
-        """
         return {
             "text": f"Simulated Gemini reasoning for prompt: '{prompt[:60]}...' using model {model}",
             "prompt_tokens": len(prompt.split()) * 2 + 50,

@@ -3,9 +3,7 @@ import redis.asyncio as aioredis
 from src.backend.engine.models import ToolCallRequest
 from src.backend.queues.stream_worker import (
     ToolStreamProducer,
-    ToolStreamWorker,
-    STREAM_TOOL_CALLS,
-    CONSUMER_GROUP_TOOL_WORKERS
+    ToolStreamWorker
 )
 
 
@@ -20,8 +18,11 @@ async def test_stream_producer_and_consumer():
     except Exception as e:
         pytest.skip(f"Redis not reachable for stream worker test: {e}")
 
-    producer = ToolStreamProducer(redis_client=client)
-    worker = ToolStreamWorker(redis_client=client, consumer_group="test_group_workers", stream_name="test_stream_calls")
+    stream_name = "test_stream_calls"
+    group_name = "test_group_workers"
+
+    producer = ToolStreamProducer(redis_client=client, stream_name=stream_name)
+    worker = ToolStreamWorker(redis_client=client, consumer_group=group_name, stream_name=stream_name)
 
     agent_id = "agent-stream-test-001"
     step_id = "step-001"
@@ -59,5 +60,5 @@ async def test_stream_producer_and_consumer():
         assert payload["timeout_ms"] == 3000
 
     finally:
-        await client.delete("test_stream_calls")
+        await client.delete(stream_name)
         await client.aclose()

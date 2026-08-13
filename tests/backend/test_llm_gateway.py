@@ -7,7 +7,7 @@ async def test_llm_gateway_mock_fallback():
     """
     Asserts that AsyncLLMGateway falls back to mock provider when no API keys are configured.
     """
-    gateway = AsyncLLMGateway(gemini_api_key=None, openai_api_key=None)
+    gateway = AsyncLLMGateway(gemini_api_key="", openai_api_key="")
     res = await gateway.generate_reasoning_step("Analyze execution graph for optimization")
 
     assert "text" in res
@@ -24,7 +24,7 @@ async def test_llm_gateway_custom_model():
     """
     Asserts that AsyncLLMGateway respects model selection parameter.
     """
-    gateway = AsyncLLMGateway()
+    gateway = AsyncLLMGateway(gemini_api_key="", openai_api_key="")
     res = await gateway.generate_reasoning_step(
         prompt="Synthesize research data",
         model="gemini-1.5-flash"
