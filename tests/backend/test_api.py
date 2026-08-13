@@ -1,9 +1,8 @@
 import pytest
-import redis.asyncio as aioredis
 from httpx import AsyncClient, ASGITransport
 from fastapi.testclient import TestClient
 from src.backend.main import app, engine
-from src.backend.db.database import init_sqlite_db
+from src.backend.db.database import init_sqlite_db, get_redis_client
 from src.backend.engine.models import AgentConfig, AgentStatus
 
 
@@ -45,7 +44,7 @@ async def test_agent_run_rest_endpoint():
     Asserts POST /api/v1/agents/run triggers agent task and returns HTTP 202 Accepted.
     """
     try:
-        r_client = aioredis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+        r_client = await get_redis_client()
         await r_client.ping()
     except Exception as e:
         pytest.skip(f"Redis not reachable for REST API test: {e}")
