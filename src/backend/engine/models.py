@@ -18,18 +18,25 @@ class AgentStatus(str, Enum):
 class StepNodeType(str, Enum):
     SUPERVISOR_PROMPT = "SUPERVISOR_PROMPT"
     WORKER_PROMPT = "WORKER_PROMPT"
+    LLM_REASONING = "LLM_REASONING"
     TOOL_EXECUTION = "TOOL_EXECUTION"
-    STATE_TRANSITION = "STATE_TRANSITION"
+    FAN_OUT_DISPATCH = "FAN_OUT_DISPATCH"
+    STATE_CHECKPOINT = "STATE_CHECKPOINT"
 
 
-class AgentConfig(BaseModel):
-    agent_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    parent_agent_id: Optional[str] = None
-    goal: str
-    model: str = "gemini-2.5-flash"
-    max_budget_usd: float = 1.00
-    available_tools: List[str] = Field(default_factory=list)
-    simulate_delay_sec: float = 0.0
+class ToolCallRequest(BaseModel):
+    tool_name: str = Field(..., description="Target tool name to invoke")
+    params: Dict[str, Any] = Field(default_factory=dict, description="Parameters passed to tool")
+    timeout_ms: int = Field(default=5000, description="Execution deadline in milliseconds")
+    max_retries: int = Field(default=3, description="Maximum retry attempts on failure")
+
+
+class ToolCallResult(BaseModel):
+    tool_name: str
+    status: str  # "SUCCESS" | "FAILED" | "TIMEOUT"
+    output: Any
+    execution_time_ms: int
+    error: Optional[str] = None
 
 
 class ExecutionStep(BaseModel):
@@ -38,12 +45,22 @@ class ExecutionStep(BaseModel):
     agent_id: str
     node_type: StepNodeType
     input_payload: Dict[str, Any] = Field(default_factory=dict)
-    output_payload: Dict[str, Any] = Field(default_factory=dict)
+    output_payload: Optional[Dict[str, Any]] = None
     prompt_tokens: int = 0
     completion_tokens: int = 0
     step_cost_usd: float = 0.0
     duration_ms: int = 0
-    created_at: float = Field(default_factory=time.time)
+    timestamp: float = Field(default_factory=time.time)
+
+
+class AgentConfig(BaseModel):
+    agent_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    parent_agent_id: Optional[str] = None
+    goal: str = Field(..., description="High-level goal description for the agent")
+    available_tools: List[str] = Field(default_factory=lambda: ["http_tool", "cpp_sandbox"])
+    model: str = Field(default="gemini-2.5-flash", description="Target LLM model")
+    max_budget_usd: float = Field(default=1.00, description="Max dollar limit for tokens")
+    max_workers: int = Field(default=3, description="Max sub-agent workers for fan-out")
 
 
 class AgentState(BaseModel):
@@ -56,20 +73,3 @@ class AgentState(BaseModel):
     accumulated_cost_usd: float = 0.0
     context_data: Dict[str, Any] = Field(default_factory=dict)
     updated_at: float = Field(default_factory=time.time)
-
-
-class ToolCallRequest(BaseModel):
-    call_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    tool_name: str
-    params: Dict[str, Any] = Field(default_factory=dict)
-    timeout_ms: int = 5000
-    max_retries: int = 3
-
-
-class ToolCallResult(BaseModel):
-    call_id: Optional[str] = None
-    tool_name: str
-    status: str  # SUCCESS, FAILED, TIMEOUT
-    output: Any = None
-    execution_time_ms: int = 0
-    error: Optional[str] = None

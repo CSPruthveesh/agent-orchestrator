@@ -51,9 +51,6 @@ class AsyncTaskGraphEngine:
         self._active_states: Dict[str, AgentState] = {}
 
     async def _publish_event(self, agent_id: str, event_type: str, data: Dict[str, Any]) -> None:
-        """
-        Helper method to emit real-time event payloads to active WebSocket subscribers.
-        """
         if self.event_publisher:
             event_payload = {
                 "event_type": event_type,
@@ -93,7 +90,7 @@ class AsyncTaskGraphEngine:
                 state.context_data["cancellation_reason"] = reason
                 await self.checkpointer.save_checkpoint(state)
                 await self._publish_event(agent_id, "EXECUTION_TERMINATED", {
-                    "status": "SUSPENDED",
+                    "status": "CANCELLED",
                     "reason": reason
                 })
             return True
@@ -103,7 +100,6 @@ class AsyncTaskGraphEngine:
         start_time = time.time()
         agent_id = config.agent_id
 
-        # 1. Initialize or recover agent state
         state = await self.checkpointer.load_checkpoint(agent_id)
         if state is None:
             state = AgentState(
@@ -156,14 +152,10 @@ class AsyncTaskGraphEngine:
 
             await self._publish_event(agent_id, "BUDGET_UPDATE", budget_res)
 
-            # Simulated delay for cancellation testing if requested
-            delay_sec = config.simulate_delay_sec
-            if not delay_sec and any(kw in config.goal.lower() for kw in ["sleep", "delay", "slow", "cancel"]):
-                delay_sec = 5.0
-
-            if delay_sec > 0:
-                logger.info(f"Agent '{agent_id}' entering simulated delay for {delay_sec} seconds...")
-                await asyncio.sleep(delay_sec)
+            # Simulated execution delay for prompts containing 'sleep' or 'delay' to test cancellation
+            if any(k in config.goal.lower() for k in ["sleep", "delay", "long", "cancel"]):
+                logger.info(f"Simulating 5-second execution delay for agent '{agent_id}' cancellation test...")
+                await asyncio.sleep(5.0)
 
             # Turn 2: Tool Execution Step
             if config.available_tools:
