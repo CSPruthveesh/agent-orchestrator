@@ -69,7 +69,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         connectGlobalStream() {
-            // Connect to global dashboard WebSocket stream immediately on page load
             const wsUrl = `/ws/traces/global`;
             this.globalWs = new window.AutoReconnectingWebSocket(wsUrl);
             
@@ -128,15 +127,24 @@ document.addEventListener('DOMContentLoaded', () => {
         async handleCancelAgent() {
             if (!this.currentAgentId) return;
 
+            this.appendLog('STARTED', `Attempting cancellation for agent '${this.currentAgentId}'...`);
+
             try {
                 const response = await fetch(`/api/v1/agents/${this.currentAgentId}/cancel`, {
                     method: 'POST'
                 });
+
                 if (response.ok) {
-                    this.appendLog('FAILED', `Cancellation requested for agent '${this.currentAgentId}'`);
+                    const data = await response.json();
+                    this.appendLog('FAILED', `Agent task cancelled successfully.`);
+                    this.btnCancel.disabled = true;
+                } else {
+                    const errData = await response.json();
+                    this.appendLog('FAILED', `Cancellation notice: ${errData.detail || 'Task is not actively running.'}`);
                 }
             } catch (err) {
-                console.error('[Dashboard] Cancellation failed:', err);
+                console.error('[Dashboard] Cancellation error:', err);
+                this.appendLog('FAILED', `Cancellation failed: ${err.message}`);
             }
         }
 
@@ -225,6 +233,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     this.dagRenderer.render();
                     this.appendLog('COMPLETED', `Agent task completed in ${data.duration_ms}ms! Trace ID: ${data.final_trace_id}`);
+                } else if (data.status === 'SUSPENDED' || data.status === 'CANCELLED') {
+                    this.dagRenderer.nodes.forEach(node => {
+                        if (node.status === 'RUNNING' || node.status === 'WAITING_FOR_TOOL') {
+                            node.status = 'FAILED';
+                        }
+                    });
+                    this.dagRenderer.render();
+                    this.appendLog('FAILED', `Agent task cancelled/suspended.`);
                 } else {
                     this.dagRenderer.nodes.forEach(node => {
                         if (node.status === 'RUNNING' || node.status === 'WAITING_FOR_TOOL') {
@@ -292,6 +308,5 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Initialize controller
     window.dashboardApp = new DashboardController();
 });
