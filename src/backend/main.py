@@ -85,6 +85,17 @@ async def health_check() -> Dict[str, str]:
     }
 
 
+@app.get(f"{settings.API_V1_STR}/telemetry/summary", tags=["Telemetry"])
+async def get_telemetry_summary() -> Dict[str, Any]:
+    """
+    Returns platform-wide cumulative tokens consumed, total spend USD, and total agent count across all agents.
+    """
+    repo = TraceRepository()
+    summary = await repo.get_global_telemetry_summary()
+    summary["active_agents"] = len(engine._active_tasks)
+    return summary
+
+
 @app.websocket("/ws/traces/{agent_id}")
 async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
     """

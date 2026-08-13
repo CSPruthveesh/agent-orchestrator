@@ -109,3 +109,41 @@ class TraceRepository:
             ) as cursor:
                 result = await cursor.fetchone()
                 return result[0] if result and result[0] is not None else 0.0
+
+    async def get_global_telemetry_summary(self) -> Dict[str, Any]:
+        """
+        Calculates platform-wide cumulative token usage, total spend, and total agent executions from SQLite.
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0), COALESCE(SUM(step_cost_usd), 0.0) FROM token_ledger"
+            ) as cursor:
+                row = await cursor.fetchone()
+                ledger_tokens = row[0] if row else 0
+                ledger_cost = row[1] if row else 0.0
+
+            async with db.execute(
+                "SELECT COALESCE(SUM(total_tokens), 0), COALESCE(SUM(total_cost_usd), 0.0), COUNT(DISTINCT agent_id) FROM trace_records"
+            ) as cursor:
+                row = await cursor.fetchone()
+                trace_tokens = row[0] if row else 0
+                trace_cost = row[1] if row else 0.0
+                total_agents = row[2] if row else 0
+
+            async with db.execute(
+                "SELECT COUNT(DISTINCT agent_id) FROM token_ledger"
+            ) as cursor:
+                row = await cursor.fetchone()
+                ledger_agents = row[0] if row else 0
+
+            # Use maximums between token_ledger and trace_records to ensure no tokens/spend are missed
+            final_tokens = max(int(ledger_tokens), int(trace_tokens))
+            final_cost = max(float(ledger_cost), float(trace_cost))
+            final_agents = max(int(ledger_agents), int(total_agents))
+
+            return {
+                "total_tokens": final_tokens,
+                "total_cost_usd": final_cost,
+                "total_agents": final_agents
+            }
+

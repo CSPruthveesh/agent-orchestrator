@@ -162,6 +162,15 @@ class AsyncTaskGraphEngine:
             state.accumulated_cost_usd = budget_res["total_spend_usd"]
             await self.checkpointer.save_checkpoint(state)
 
+            await self.trace_repo.log_token_usage(
+                agent_id=agent_id,
+                step_id=step1.step_id,
+                model=config.model,
+                prompt_tokens=step1.prompt_tokens,
+                completion_tokens=step1.completion_tokens,
+                step_cost_usd=step1.step_cost_usd
+            )
+
             await self._publish_event(agent_id, "BUDGET_UPDATE", budget_res)
 
             # Simulated execution delay for cancellation testing if requested
@@ -223,6 +232,15 @@ class AsyncTaskGraphEngine:
                 state.accumulated_tokens = budget_res2["total_tokens"]
                 state.accumulated_cost_usd = budget_res2["total_spend_usd"]
                 await self.checkpointer.save_checkpoint(state)
+
+                await self.trace_repo.log_token_usage(
+                    agent_id=agent_id,
+                    step_id=step2.step_id,
+                    model=config.model,
+                    prompt_tokens=step2.prompt_tokens,
+                    completion_tokens=step2.completion_tokens,
+                    step_cost_usd=step2.step_cost_usd
+                )
 
                 await self._publish_event(agent_id, "BUDGET_UPDATE", budget_res2)
 
