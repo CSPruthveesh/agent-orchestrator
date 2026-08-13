@@ -150,6 +150,13 @@ class DAGRenderer {
                 node.y = levelY;
             });
         });
+
+        const maxDepth = Math.max(...sortedDepths, 0);
+        const reqHeight = Math.max(380, startY + (maxDepth + 1) * this.levelSpacingY + 60);
+        if (this.svg) {
+            this.svg.setAttribute('height', reqHeight);
+            this.svg.style.height = `${reqHeight}px`;
+        }
     }
 
     layoutAndRender() {

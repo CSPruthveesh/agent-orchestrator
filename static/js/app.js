@@ -221,6 +221,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.lastStepId = data.step_id;
                 this.dagRenderer.addNode({
                     step_id: data.step_id,
+                    parent_step_id: data.parent_step_id || null,
                     label: data.node_type || 'Reasoning Step',
                     node_type: data.node_type,
                     status: 'RUNNING',
@@ -232,10 +233,11 @@ document.addEventListener('DOMContentLoaded', () => {
             this.activeWs.on('TOOL_CALL_DISPATCHED', (evt) => {
                 const data = evt.data;
                 const parentId = data.parent_step_id || this.lastStepId;
-                this.activeToolStepId = data.step_id || `tool-${agentId}-${data.tool_name}`;
+                const toolStepId = data.step_id || `tool-${agentId}-${data.tool_name}-${Math.random().toString(36).substring(2, 7)}`;
+                this.activeToolStepId = toolStepId;
 
                 this.dagRenderer.addNode({
-                    step_id: this.activeToolStepId,
+                    step_id: toolStepId,
                     parent_step_id: parentId,
                     label: `Tool: ${data.tool_name}`,
                     node_type: 'TOOL_EXECUTION',
@@ -247,8 +249,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             this.activeWs.on('TOOL_CALL_COMPLETED', (evt) => {
                 const data = evt.data;
-                if (this.activeToolStepId) {
-                    this.dagRenderer.updateNodeStatus(this.activeToolStepId, 'COMPLETED', {
+                const targetStepId = data.step_id || this.activeToolStepId;
+                if (targetStepId) {
+                    this.dagRenderer.updateNodeStatus(targetStepId, 'COMPLETED', {
                         output: data.output
                     });
                 }
