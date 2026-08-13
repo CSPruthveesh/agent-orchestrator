@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from src.backend.config import settings
 from src.backend.db.database import init_sqlite_db, close_redis_pool
 from src.backend.db.repository import TraceRepository
-from src.backend.engine.models import AgentConfig, AgentState, StepNodeType
+from src.backend.engine.models import AgentConfig, AgentState, StepNodeType, AgentStatus
 from src.backend.engine.orchestrator import AsyncTaskGraphEngine
 from src.backend.websocket.manager import ws_manager
 
@@ -89,7 +89,7 @@ async def health_check() -> Dict[str, str]:
 async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
     """
     Real-time WebSocket endpoint streaming agent execution trace DAG events to browser dashboard.
-    Replays step history for fast (<20ms) sub-task executions.
+    Replays step history for fast (<20ms) sub-task executions cleanly.
     """
     await ws_manager.connect(websocket, agent_id)
     try:
@@ -105,7 +105,7 @@ async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
         # Replay historical step events if agent completed before connection established
         if agent_id != "global":
             checkpoint = await engine.checkpointer.load_checkpoint(agent_id)
-            if checkpoint:
+            if checkpoint and checkpoint.history:
                 last_step_id = None
                 for step in checkpoint.history:
                     if step.node_type != StepNodeType.TOOL_EXECUTION:
@@ -148,21 +148,25 @@ async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
                     "agent_id": agent_id,
                     "timestamp": checkpoint.updated_at,
                     "data": {
+                        "turn_tokens": checkpoint.accumulated_tokens,
+                        "turn_cost_usd": checkpoint.accumulated_cost_usd,
                         "total_tokens": checkpoint.accumulated_tokens,
                         "total_spend_usd": checkpoint.accumulated_cost_usd
                     }
                 }, websocket)
 
-                await ws_manager.send_personal_message({
-                    "event_type": "EXECUTION_TERMINATED",
-                    "agent_id": agent_id,
-                    "timestamp": checkpoint.updated_at,
-                    "data": {
-                        "status": checkpoint.status.value,
-                        "duration_ms": 50,
-                        "final_trace_id": agent_id
-                    }
-                }, websocket)
+                # Only emit EXECUTION_TERMINATED if agent is in a terminal status
+                if checkpoint.status in (AgentStatus.COMPLETED, AgentStatus.FAILED, AgentStatus.BUDGET_EXCEEDED, AgentStatus.SUSPENDED):
+                    await ws_manager.send_personal_message({
+                        "event_type": "EXECUTION_TERMINATED",
+                        "agent_id": agent_id,
+                        "timestamp": checkpoint.updated_at,
+                        "data": {
+                            "status": checkpoint.status.value,
+                            "duration_ms": 50,
+                            "final_trace_id": agent_id
+                        }
+                    }, websocket)
 
         while True:
             data = await websocket.receive_json()
