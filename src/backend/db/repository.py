@@ -74,11 +74,13 @@ class TraceRepository:
         model: str,
         prompt_tokens: int,
         completion_tokens: int,
-        step_cost_usd: float
+        step_cost_usd: Optional[float] = None,
+        cost_usd: Optional[float] = None
     ) -> None:
         """
         Logs individual step token usage and calculated cost to token_ledger.
         """
+        effective_cost = step_cost_usd if step_cost_usd is not None else (cost_usd if cost_usd is not None else 0.0)
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """
@@ -92,7 +94,7 @@ class TraceRepository:
                     model,
                     prompt_tokens,
                     completion_tokens,
-                    step_cost_usd
+                    effective_cost
                 )
             )
             await db.commit()

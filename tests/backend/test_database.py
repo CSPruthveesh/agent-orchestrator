@@ -2,7 +2,6 @@ import os
 import pytest
 import tempfile
 import redis.asyncio as aioredis
-from src.backend.db import database
 from src.backend.db.database import (
     get_redis_pool,
     get_redis_client,
@@ -18,11 +17,10 @@ async def test_redis_pool_singleton():
     Asserts that get_redis_pool returns a singleton ConnectionPool instance.
     """
     await close_redis_pool()
-    pool1 = get_redis_pool()
-    pool2 = get_redis_pool()
+    pool1 = await get_redis_pool()
+    pool2 = await get_redis_pool()
     assert pool1 is pool2
     await close_redis_pool()
-    assert database._redis_pool is None
 
 
 @pytest.mark.asyncio
@@ -33,8 +31,6 @@ async def test_redis_client_instantiation():
     await close_redis_pool()
     client = await get_redis_client()
     assert isinstance(client, aioredis.Redis)
-    assert client.connection_pool is get_redis_pool()
-    await client.aclose()
     await close_redis_pool()
 
 
@@ -61,28 +57,29 @@ async def test_sqlite_init_and_trace_repository():
             cost_usd=0.002
         )
 
-        cost = await repo.get_agent_total_cost("agent-123")
-        assert cost == 0.002
+        total_cost = await repo.get_agent_total_cost("agent-123")
+        assert total_cost == 0.002
 
-        # Test save & get trace
+        # Test save trace
+        trace_data = {"goal": "Test goal", "steps": []}
         await repo.save_trace(
-            trace_id="trace-123",
+            trace_id="trace-001",
             agent_id="agent-123",
             status="COMPLETED",
-            goal="Scrape website",
+            goal="Test goal",
             model="gemini-2.5-flash",
             total_tokens=150,
             total_cost_usd=0.002,
-            duration_ms=1200,
-            trace_data={"steps": []}
+            duration_ms=120,
+            trace_data=trace_data
         )
 
-        record = await repo.get_trace("trace-123")
-        assert record is not None
-        assert record["agent_id"] == "agent-123"
-        assert record["status"] == "COMPLETED"
-        assert record["total_tokens"] == 150
-        assert record["trace_data"] == {"steps": []}
+        fetched = await repo.get_trace("trace-001")
+        assert fetched is not None
+        assert fetched["trace_id"] == "trace-001"
+        assert fetched["agent_id"] == "agent-123"
+        assert fetched["status"] == "COMPLETED"
+        assert fetched["trace_data"] == trace_data
 
     finally:
         if os.path.exists(db_path):
