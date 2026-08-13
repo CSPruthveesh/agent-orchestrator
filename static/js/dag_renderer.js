@@ -60,6 +60,9 @@ class DAGRenderer {
             // Update existing
             const existing = this.nodes.get(stepId);
             Object.assign(existing, nodeData);
+            if (nodeData.parent_step_id) {
+                existing.parentStepId = nodeData.parent_step_id;
+            }
         } else {
             this.nodes.set(stepId, {
                 id: stepId,
@@ -77,16 +80,13 @@ class DAGRenderer {
                 y: 0,
                 depth: 0
             });
-
-            if (nodeData.parent_step_id && this.nodes.has(nodeData.parent_step_id)) {
-                this.addEdge(nodeData.parent_step_id, stepId);
-            }
         }
 
         this.layoutAndRender();
     }
 
     addEdge(sourceId, targetId) {
+        if (!sourceId || !targetId) return;
         const exists = this.edges.some(e => e.source === sourceId && e.target === targetId);
         if (!exists) {
             this.edges.push({ source: sourceId, target: targetId });
@@ -106,6 +106,13 @@ class DAGRenderer {
 
     calculateTopologicalLayout() {
         if (this.nodes.size === 0) return;
+
+        // Re-sync edges for any nodes whose parent was added later
+        this.nodes.forEach(node => {
+            if (node.parentStepId && this.nodes.has(node.parentStepId)) {
+                this.addEdge(node.parentStepId, node.id);
+            }
+        });
 
         // Group nodes by depth
         const levels = new Map(); // depth -> Node[]
@@ -129,7 +136,11 @@ class DAGRenderer {
         const svgWidth = this.svg.clientWidth || 800;
         const startY = 60;
 
-        levels.forEach((nodeList, depth) => {
+        // Sort levels topologically (depth 0 first, depth 1 second)
+        const sortedDepths = Array.from(levels.keys()).sort((a, b) => a - b);
+
+        sortedDepths.forEach(depth => {
+            const nodeList = levels.get(depth);
             const levelY = startY + depth * this.levelSpacingY;
             const totalWidth = (nodeList.length - 1) * this.nodeSpacingX;
             const startX = Math.max(80, (svgWidth - totalWidth) / 2);

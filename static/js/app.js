@@ -79,21 +79,33 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             this.globalWs.on('BUDGET_UPDATE', (evt) => {
-                const data = evt.data || evt;
-                const turnTokens = data.turn_tokens || 0;
-                const turnCost = data.turn_cost_usd || 0.0;
-
-                if (turnTokens > 0) {
-                    this.globalPlatformTokens += turnTokens;
-                    this.statTotalTokens.textContent = this.globalPlatformTokens.toLocaleString();
-                }
-                if (turnCost > 0) {
-                    this.globalPlatformSpendUsd += turnCost;
-                    this.statTotalCost.textContent = `$${this.globalPlatformSpendUsd.toFixed(4)}`;
-                }
+                this.updateBudgetHeader(evt.data || evt);
             });
 
             this.globalWs.connect();
+        }
+
+        updateBudgetHeader(data) {
+            if (!data) return;
+
+            const turnTokens = data.turn_tokens || 0;
+            const turnCost = data.turn_cost_usd || 0.0;
+
+            if (turnTokens > 0) {
+                this.globalPlatformTokens += turnTokens;
+                this.statTotalTokens.textContent = this.globalPlatformTokens.toLocaleString();
+            } else if (data.total_tokens !== undefined && data.total_tokens !== null && data.total_tokens > 0) {
+                this.globalPlatformTokens = Math.max(this.globalPlatformTokens, data.total_tokens);
+                this.statTotalTokens.textContent = this.globalPlatformTokens.toLocaleString();
+            }
+
+            if (turnCost > 0) {
+                this.globalPlatformSpendUsd += turnCost;
+                this.statTotalCost.textContent = `$${this.globalPlatformSpendUsd.toFixed(4)}`;
+            } else if (data.total_spend_usd !== undefined && data.total_spend_usd !== null && data.total_spend_usd > 0) {
+                this.globalPlatformSpendUsd = Math.max(this.globalPlatformSpendUsd, data.total_spend_usd);
+                this.statTotalCost.textContent = `$${this.globalPlatformSpendUsd.toFixed(4)}`;
+            }
         }
 
         async handleLaunchAgent(e) {
@@ -199,10 +211,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             this.activeWs.on('TOOL_CALL_DISPATCHED', (evt) => {
                 const data = evt.data;
-                this.activeToolStepId = `tool-${data.tool_name}-${Date.now()}`;
+                const parentId = data.parent_step_id || this.lastStepId;
+                this.activeToolStepId = data.step_id || `tool-${agentId}-${data.tool_name}`;
+
                 this.dagRenderer.addNode({
                     step_id: this.activeToolStepId,
-                    parent_step_id: this.lastStepId,
+                    parent_step_id: parentId,
                     label: `Tool: ${data.tool_name}`,
                     node_type: 'TOOL_EXECUTION',
                     status: 'WAITING_FOR_TOOL',
@@ -219,6 +233,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 }
                 this.appendLog('COMPLETED', `Tool '${data.tool_name}' executed successfully.`);
+            });
+
+            this.activeWs.on('BUDGET_UPDATE', (evt) => {
+                this.updateBudgetHeader(evt.data || evt);
             });
 
             this.activeWs.on('AGENT_STATE_CHANGE', (evt) => {
