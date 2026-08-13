@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: Optional[str] = None
     REDIS_MAX_CONNECTIONS: int = 20
 
     # SQLite Database Settings
@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     MAX_AGENT_TREE_DEPTH: int = 3
     MAX_WORKERS_PER_SUPERVISOR: int = 5
     DEFAULT_AGENT_BUDGET_USD: float = 1.00
+
+    @property
+    def redis_connection_url(self) -> str:
+        """
+        Returns configured REDIS_URL or constructs URL from REDIS_HOST/PORT/DB.
+        """
+        if self.REDIS_URL:
+            return self.REDIS_URL
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     model_config = SettingsConfigDict(
         env_file=".env",
