@@ -50,7 +50,6 @@ async def test_agent_run_rest_endpoint():
     except Exception as e:
         pytest.skip(f"Redis not reachable for REST API test: {e}")
 
-    # Ensure SQLite tables exist
     await init_sqlite_db()
 
     transport = ASGITransport(app=app)
@@ -82,4 +81,3 @@ async def test_agent_run_rest_endpoint():
         assert status_data["status"] == "COMPLETED"
 
         await engine.checkpointer.delete_checkpoint(agent_id)
-        await r_client.aclose()
