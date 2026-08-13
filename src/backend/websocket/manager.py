@@ -115,11 +115,12 @@ class WebSocketConnectionManager:
 
     def get_subscription_count(self, agent_id: Optional[str] = None) -> int:
         """
-        Returns count of active web sockets for an agent or total global connections.
+        Returns count of active web sockets for an agent or total active connections across all channels.
         """
         if agent_id:
             return len(self.agent_subscriptions.get(agent_id, set()))
-        return len(self.global_connections)
+        total_agent_sockets = sum(len(s) for s in self.agent_subscriptions.values())
+        return len(self.global_connections) + total_agent_sockets
 
 
 # Global singleton connection manager
