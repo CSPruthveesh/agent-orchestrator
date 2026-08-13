@@ -1,4 +1,5 @@
 import json
+import inspect
 import asyncio
 import logging
 import redis.asyncio as aioredis
@@ -36,10 +37,6 @@ class ToolStreamProducer:
         step_id: str,
         request: ToolCallRequest
     ) -> str:
-        """
-        Publishes a tool execution payload as a Redis Stream entry.
-        Returns the generated Redis Stream entry ID (e.g. '1770854400000-0').
-        """
         client = await self._get_client()
         entry_payload = {
             "agent_id": agent_id,
@@ -83,9 +80,6 @@ class ToolStreamWorker:
         return await get_redis_client()
 
     async def ensure_consumer_group(self) -> None:
-        """
-        Creates consumer group on the Redis stream if it doesn't already exist.
-        """
         client = await self._get_client()
         try:
             await client.xgroup_create(
@@ -97,7 +91,7 @@ class ToolStreamWorker:
             logger.info(f"Created consumer group '{self.consumer_group}' on stream '{self.stream_name}'")
         except aioredis.ResponseError as e:
             if "BUSYGROUP" in str(e):
-                pass  # Group already exists
+                pass
             else:
                 raise
 
@@ -108,10 +102,6 @@ class ToolStreamWorker:
         batch_count: int = 5,
         block_ms: int = 1000
     ) -> int:
-        """
-        Reads a batch of pending/new stream entries, calls handler, and acknowledges (XACK).
-        Returns count of processed messages in batch.
-        """
         client = await self._get_client()
         await self.ensure_consumer_group()
 
@@ -140,13 +130,11 @@ class ToolStreamWorker:
                         "max_retries": int(raw_fields.get("max_retries", 3))
                     }
 
-                    # Execute handler callback
-                    if asyncio.iscoroutinefunction(handler_func):
+                    if inspect.iscoroutinefunction(handler_func):
                         await handler_func(payload)
                     else:
                         handler_func(payload)
 
-                    # Acknowledge processed item in stream consumer group
                     await client.xack(self.stream_name, self.consumer_group, message_id)
                     processed_count += 1
 
@@ -160,9 +148,6 @@ class ToolStreamWorker:
         consumer_name: str,
         handler_func: Callable[[Dict[str, Any]], Any]
     ) -> None:
-        """
-        Starts persistent background loop reading and processing stream messages.
-        """
         self._running = True
         logger.info(f"Worker '{consumer_name}' started listening on stream '{self.stream_name}'")
         while self._running:

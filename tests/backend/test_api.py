@@ -3,6 +3,7 @@ import redis.asyncio as aioredis
 from httpx import AsyncClient, ASGITransport
 from fastapi.testclient import TestClient
 from src.backend.main import app, engine
+from src.backend.db.database import init_sqlite_db
 from src.backend.engine.models import AgentConfig, AgentStatus
 
 
@@ -48,6 +49,9 @@ async def test_agent_run_rest_endpoint():
         await r_client.ping()
     except Exception as e:
         pytest.skip(f"Redis not reachable for REST API test: {e}")
+
+    # Ensure SQLite tables exist
+    await init_sqlite_db()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
