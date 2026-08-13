@@ -16,7 +16,7 @@ class WebSocketConnectionManager:
     def __init__(self):
         # Active connections per agent_id: Dict[agent_id, Set[WebSocket]]
         self.agent_subscriptions: Dict[str, Set[WebSocket]] = {}
-        # Global active dashboard connections
+        # Global active dashboard connections (not subscribed to a specific agent_id)
         self.global_connections: Set[WebSocket] = set()
         self._lock = asyncio.Lock()
 
@@ -26,13 +26,13 @@ class WebSocketConnectionManager:
         """
         await websocket.accept()
         async with self._lock:
-            self.global_connections.add(websocket)
             if agent_id:
                 if agent_id not in self.agent_subscriptions:
                     self.agent_subscriptions[agent_id] = set()
                 self.agent_subscriptions[agent_id].add(websocket)
                 logger.info(f"WebSocket client subscribed to agent '{agent_id}' trace channel")
             else:
+                self.global_connections.add(websocket)
                 logger.info("WebSocket client subscribed to global dashboard stream")
 
     async def disconnect(self, websocket: WebSocket, agent_id: Optional[str] = None) -> None:
@@ -78,11 +78,9 @@ class WebSocketConnectionManager:
                 logger.warning(f"WebSocket send failed for agent '{agent_id}': {e}")
                 stale_sockets.add(ws)
 
-        # Cleanup disconnected sockets
         if stale_sockets:
             async with self._lock:
                 for ws in stale_sockets:
-                    self.global_connections.discard(ws)
                     if agent_id in self.agent_subscriptions:
                         self.agent_subscriptions[agent_id].discard(ws)
 
@@ -90,7 +88,7 @@ class WebSocketConnectionManager:
 
     async def broadcast_global(self, event: Dict[str, Any]) -> int:
         """
-        Broadcasts an event payload to all active client web sockets.
+        Broadcasts an event payload to global dashboard client web sockets.
         """
         async with self._lock:
             target_sockets = set(self.global_connections)
