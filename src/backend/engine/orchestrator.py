@@ -19,6 +19,7 @@ from src.backend.engine.models import (
 )
 from src.backend.engine.state_machine import RedisStateCheckpointer
 from src.backend.engine.budget_manager import TokenBudgetManager, BudgetExceededException
+from src.backend.llm.gateway import AsyncLLMGateway
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,8 @@ class AsyncTaskGraphEngine:
         redis_client: Optional[aioredis.Redis] = None,
         trace_repo: Optional[TraceRepository] = None,
         tool_dispatcher: Optional[Callable[[ToolCallRequest], Any]] = None,
-        event_publisher: Optional[Callable[[str, Dict[str, Any]], Any]] = None
+        event_publisher: Optional[Callable[[str, Dict[str, Any]], Any]] = None,
+        llm_gateway: Optional[AsyncLLMGateway] = None
     ):
         self.redis_client = redis_client
         self.checkpointer = RedisStateCheckpointer(redis_client=redis_client)
@@ -44,6 +46,7 @@ class AsyncTaskGraphEngine:
         self.trace_repo = trace_repo or TraceRepository()
         self.tool_dispatcher = tool_dispatcher
         self.event_publisher = event_publisher
+        self.llm_gateway = llm_gateway or AsyncLLMGateway()
 
         # Active running asyncio Tasks mapped by agent_id
         self._active_tasks: Dict[str, asyncio.Task] = {}
@@ -120,14 +123,23 @@ class AsyncTaskGraphEngine:
         })
 
         try:
-            # Turn 1: LLM Reasoning Step
+            # Turn 1: LLM Reasoning Step via AsyncLLMGateway (Dynamic Token Metering)
+            llm_response = await self.llm_gateway.generate_reasoning_step(
+                prompt=config.goal,
+                model=config.model,
+                system_instruction="You are an autonomous orchestrator supervisor planning task execution."
+            )
+
+            prompt_tokens_turn1 = llm_response.get("prompt_tokens", len(config.goal.split()) * 3 + 20)
+            completion_tokens_turn1 = llm_response.get("completion_tokens", len(llm_response.get("text", "").split()) + 15)
+
             step1 = ExecutionStep(
                 agent_id=agent_id,
                 node_type=StepNodeType.SUPERVISOR_PROMPT if not config.parent_agent_id else StepNodeType.WORKER_PROMPT,
-                input_payload={"goal": config.goal},
-                output_payload={"reasoning": f"Planning steps to achieve: {config.goal}"},
-                prompt_tokens=150,
-                completion_tokens=75
+                input_payload={"goal": config.goal, "model": config.model},
+                output_payload={"reasoning": llm_response.get("text", f"Planning steps for: {config.goal}")},
+                prompt_tokens=prompt_tokens_turn1,
+                completion_tokens=completion_tokens_turn1
             )
 
             await self._publish_event(agent_id, "STEP_EXECUTION_STARTED", {
@@ -152,12 +164,12 @@ class AsyncTaskGraphEngine:
 
             await self._publish_event(agent_id, "BUDGET_UPDATE", budget_res)
 
-            # Simulated execution delay for prompts containing 'sleep' or 'delay' to test cancellation
+            # Simulated execution delay for cancellation testing if requested
             if any(k in config.goal.lower() for k in ["sleep", "delay", "long", "cancel"]):
                 logger.info(f"Simulating 5-second execution delay for agent '{agent_id}' cancellation test...")
                 await asyncio.sleep(5.0)
 
-            # Turn 2: Tool Execution Step
+            # Turn 2: Tool Execution Step (Dynamic Token Metering)
             if config.available_tools:
                 state.status = AgentStatus.WAITING_FOR_TOOL
                 await self.checkpointer.save_checkpoint(state)
@@ -182,14 +194,17 @@ class AsyncTaskGraphEngine:
                     "output": tool_output if isinstance(tool_output, dict) else {"result": str(tool_output)}
                 })
 
+                prompt_tokens_turn2 = max(35, len(str(tool_req.params).split()) * 4)
+                completion_tokens_turn2 = max(25, len(str(tool_output).split()) * 2)
+
                 step2 = ExecutionStep(
                     parent_step_id=step1.step_id,
                     agent_id=agent_id,
                     node_type=StepNodeType.TOOL_EXECUTION,
                     input_payload=tool_req.model_dump(),
                     output_payload=tool_output if isinstance(tool_output, dict) else {"result": str(tool_output)},
-                    prompt_tokens=200,
-                    completion_tokens=100
+                    prompt_tokens=prompt_tokens_turn2,
+                    completion_tokens=completion_tokens_turn2
                 )
 
                 budget_res2 = await self.budget_manager.record_usage_and_check(
