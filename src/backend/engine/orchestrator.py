@@ -93,7 +93,7 @@ class AsyncTaskGraphEngine:
                 state.context_data["cancellation_reason"] = reason
                 await self.checkpointer.save_checkpoint(state)
                 await self._publish_event(agent_id, "EXECUTION_TERMINATED", {
-                    "status": "CANCELLED",
+                    "status": "SUSPENDED",
                     "reason": reason
                 })
             return True
@@ -155,6 +155,15 @@ class AsyncTaskGraphEngine:
             await self.checkpointer.save_checkpoint(state)
 
             await self._publish_event(agent_id, "BUDGET_UPDATE", budget_res)
+
+            # Simulated delay for cancellation testing if requested
+            delay_sec = config.simulate_delay_sec
+            if not delay_sec and any(kw in config.goal.lower() for kw in ["sleep", "delay", "slow", "cancel"]):
+                delay_sec = 5.0
+
+            if delay_sec > 0:
+                logger.info(f"Agent '{agent_id}' entering simulated delay for {delay_sec} seconds...")
+                await asyncio.sleep(delay_sec)
 
             # Turn 2: Tool Execution Step
             if config.available_tools:
