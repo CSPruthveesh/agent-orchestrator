@@ -1,10 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.backend.config import settings
 from src.backend.db.database import init_sqlite_db, close_redis_pool
@@ -54,6 +56,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount Static Files Directory (Project Root / static)
+static_dir = Path(__file__).resolve().parent.parent.parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+@app.get("/", tags=["Dashboard"])
+async def serve_dashboard():
+    """
+    Serves the real-time observability dashboard HTML interface.
+    """
+    index_file = static_dir / "index.html"
+    if index_file.exists():
+        return FileResponse(str(index_file))
+    return JSONResponse({"status": "Dashboard frontend under construction."})
+
 
 @app.get("/health", tags=["Health"])
 async def health_check() -> Dict[str, str]:
@@ -74,7 +92,6 @@ async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
     """
     await ws_manager.connect(websocket, agent_id)
     try:
-        # Send initial connected greeting
         await ws_manager.send_personal_message(
             {
                 "event_type": "WS_CONNECTED",
@@ -86,7 +103,6 @@ async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
 
         while True:
             data = await websocket.receive_json()
-            # Handle inbound client commands (e.g. ping, cancel)
             if data.get("type") == "PING":
                 await ws_manager.send_personal_message({"type": "PONG"}, websocket)
             elif data.get("type") == "CANCEL_EXECUTION":
