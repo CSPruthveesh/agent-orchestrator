@@ -12,6 +12,8 @@ document.addEventListener('DOMContentLoaded', () => {
             this.totalTokensAcc = 0;
             this.totalCostAcc = 0.0;
             this.eventCount = 0;
+            this.lastStepId = null;
+            this.activeToolStepId = null;
 
             this.initDOM();
             this.initDAG();
@@ -48,17 +50,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         bindEvents() {
-            // Form submission trigger
             if (this.form) {
                 this.form.addEventListener('submit', (e) => this.handleLaunchAgent(e));
             }
 
-            // Cancel button trigger
             if (this.btnCancel) {
                 this.btnCancel.addEventListener('click', () => this.handleCancelAgent());
             }
 
-            // Stream selection dropdown trigger
             if (this.selectActiveAgent) {
                 this.selectActiveAgent.addEventListener('change', (e) => {
                     const agentId = e.target.value;
@@ -102,7 +101,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const agentId = data.agent_id;
                 this.appendLog('STARTED', `Agent task created successfully! ID: ${agentId}`);
 
-                // Register stream & switch view
                 this.agentStreams.add(agentId);
                 this.updateActiveAgentDropdown(agentId);
                 this.subscribeToAgentStream(agentId);
@@ -134,6 +132,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             this.currentAgentId = agentId;
+            this.lastStepId = null;
+            this.activeToolStepId = null;
             this.dagRenderer.clear();
             this.btnCancel.disabled = false;
             this.statActiveAgents.textContent = this.agentStreams.size;
@@ -141,13 +141,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const wsUrl = `/ws/traces/${agentId}`;
             this.activeWs = new window.AutoReconnectingWebSocket(wsUrl);
 
-            // Bind WebSocket event listeners
             this.activeWs.on('WS_CONNECTED', (evt) => {
                 this.appendLog('STARTED', evt.message);
             });
 
             this.activeWs.on('STEP_EXECUTION_STARTED', (evt) => {
                 const data = evt.data;
+                this.lastStepId = data.step_id;
                 this.dagRenderer.addNode({
                     step_id: data.step_id,
                     label: data.node_type || 'Reasoning Step',
@@ -160,11 +160,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
             this.activeWs.on('TOOL_CALL_DISPATCHED', (evt) => {
                 const data = evt.data;
+                this.activeToolStepId = `tool-${data.tool_name}-${Date.now()}`;
+                this.dagRenderer.addNode({
+                    step_id: this.activeToolStepId,
+                    parent_step_id: this.lastStepId,
+                    label: `Tool: ${data.tool_name}`,
+                    node_type: 'TOOL_EXECUTION',
+                    status: 'WAITING_FOR_TOOL',
+                    input_payload: data.params
+                });
                 this.appendLog('TOOL', `Invoking tool '${data.tool_name}' with params: ${JSON.stringify(data.params)}`);
             });
 
             this.activeWs.on('TOOL_CALL_COMPLETED', (evt) => {
                 const data = evt.data;
+                if (this.activeToolStepId) {
+                    this.dagRenderer.updateNodeStatus(this.activeToolStepId, 'COMPLETED', {
+                        output: data.output
+                    });
+                }
                 this.appendLog('COMPLETED', `Tool '${data.tool_name}' executed successfully.`);
             });
 
@@ -188,9 +202,23 @@ document.addEventListener('DOMContentLoaded', () => {
             this.activeWs.on('EXECUTION_TERMINATED', (evt) => {
                 const data = evt.data;
                 this.btnCancel.disabled = true;
+
+                // Update all active running nodes in DAG renderer to COMPLETED
                 if (data.status === 'COMPLETED') {
+                    this.dagRenderer.nodes.forEach(node => {
+                        if (node.status === 'RUNNING' || node.status === 'WAITING_FOR_TOOL') {
+                            node.status = 'COMPLETED';
+                        }
+                    });
+                    this.dagRenderer.render();
                     this.appendLog('COMPLETED', `Agent task completed in ${data.duration_ms}ms! Trace ID: ${data.final_trace_id}`);
                 } else {
+                    this.dagRenderer.nodes.forEach(node => {
+                        if (node.status === 'RUNNING' || node.status === 'WAITING_FOR_TOOL') {
+                            node.status = data.status;
+                        }
+                    });
+                    this.dagRenderer.render();
                     this.appendLog('FAILED', `Agent task terminated -> Status: ${data.status}`);
                 }
             });
