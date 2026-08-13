@@ -96,6 +96,16 @@ async def get_telemetry_summary() -> Dict[str, Any]:
     return summary
 
 
+@app.post(f"{settings.API_V1_STR}/telemetry/reset", tags=["Telemetry"])
+async def reset_telemetry_history() -> Dict[str, str]:
+    """
+    Clears all historical telemetry metrics and trace logs from SQLite.
+    """
+    repo = TraceRepository()
+    await repo.clear_telemetry_history()
+    return {"status": "success", "message": "Telemetry history and trace records cleared."}
+
+
 @app.websocket("/ws/traces/{agent_id}")
 async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
     """

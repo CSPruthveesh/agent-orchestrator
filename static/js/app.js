@@ -96,9 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.globalPlatformSpendUsd = data.total_cost_usd || 0.0;
                     this.statTotalTokens.textContent = this.globalPlatformTokens.toLocaleString();
                     this.statTotalCost.textContent = `$${this.globalPlatformSpendUsd.toFixed(4)}`;
-                    if (data.total_agents !== undefined && data.total_agents > 0) {
-                        this.statActiveAgents.textContent = Math.max(this.agentStreams.size, data.total_agents);
-                    }
+                    this.statActiveAgents.textContent = this.agentStreams.size;
                 }
             } catch (err) {
                 console.warn('[Dashboard] Telemetry summary fetch warning:', err);
@@ -209,18 +207,8 @@ document.addEventListener('DOMContentLoaded', () => {
             this.lastStepId = null;
             this.activeToolStepId = null;
             
-            // Smooth fade transition for SVG viewport
-            if (this.dagRenderer && this.dagRenderer.svg) {
-                this.dagRenderer.svg.classList.add('transitioning');
-                setTimeout(() => {
-                    this.dagRenderer.clear();
-                    if (this.dagRenderer.svg) {
-                        this.dagRenderer.svg.classList.remove('transitioning');
-                    }
-                }, 150);
-            } else {
-                this.dagRenderer.clear();
-            }
+            // Clear graph synchronously before connecting to the stream
+            this.dagRenderer.clear();
 
             this.btnCancel.disabled = false;
             this.statActiveAgents.textContent = this.agentStreams.size;

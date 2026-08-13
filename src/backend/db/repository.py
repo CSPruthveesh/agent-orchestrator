@@ -147,3 +147,12 @@ class TraceRepository:
                 "total_agents": final_agents
             }
 
+    async def clear_telemetry_history(self) -> None:
+        """
+        Purges historical trace records and token ledger entries from SQLite.
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM token_ledger")
+            await db.execute("DELETE FROM trace_records")
+            await db.commit()
+
