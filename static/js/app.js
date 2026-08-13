@@ -10,8 +10,6 @@ document.addEventListener('DOMContentLoaded', () => {
             this.globalWs = null;
             this.currentAgentId = null;
             this.agentStreams = new Set();
-            this.globalTokensAcc = 0;
-            this.globalCostAcc = 0.0;
             this.eventCount = 0;
             this.lastStepId = null;
             this.activeToolStepId = null;
@@ -77,18 +75,20 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             this.globalWs.on('BUDGET_UPDATE', (evt) => {
-                const data = evt.data;
-                if (data.turn_tokens) {
-                    this.globalTokensAcc += data.turn_tokens;
-                    this.statTotalTokens.textContent = this.globalTokensAcc.toLocaleString();
-                }
-                if (data.turn_cost_usd) {
-                    this.globalCostAcc += data.turn_cost_usd;
-                    this.statTotalCost.textContent = `$${this.globalCostAcc.toFixed(4)}`;
-                }
+                this.updateBudgetHeader(evt.data || evt);
             });
 
             this.globalWs.connect();
+        }
+
+        updateBudgetHeader(data) {
+            if (!data) return;
+            if (data.total_tokens !== undefined && data.total_tokens !== null) {
+                this.statTotalTokens.textContent = data.total_tokens.toLocaleString();
+            }
+            if (data.total_spend_usd !== undefined && data.total_spend_usd !== null) {
+                this.statTotalCost.textContent = `$${data.total_spend_usd.toFixed(4)}`;
+            }
         }
 
         async handleLaunchAgent(e) {
@@ -214,6 +214,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 }
                 this.appendLog('COMPLETED', `Tool '${data.tool_name}' executed successfully.`);
+            });
+
+            this.activeWs.on('BUDGET_UPDATE', (evt) => {
+                this.updateBudgetHeader(evt.data || evt);
             });
 
             this.activeWs.on('AGENT_STATE_CHANGE', (evt) => {
