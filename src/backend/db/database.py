@@ -44,7 +44,7 @@ async def close_redis_pool() -> None:
 
 async def get_sqlite_db(db_path: Optional[str] = None) -> aiosqlite.Connection:
     """
-    Returns an async SQLite database connection.
+    Returns an opened async SQLite database connection. Caller is responsible for closing it.
     """
     target_path = db_path or settings.SQLITE_DB_PATH
     db = await aiosqlite.connect(target_path)
@@ -56,7 +56,8 @@ async def init_sqlite_db(db_path: Optional[str] = None) -> None:
     """
     Initializes SQLite tables for traces and token ledger if they do not exist.
     """
-    async with await get_sqlite_db(db_path) as db:
+    target_path = db_path or settings.SQLITE_DB_PATH
+    async with aiosqlite.connect(target_path) as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS trace_records (
                 trace_id TEXT PRIMARY KEY,

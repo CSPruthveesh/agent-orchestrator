@@ -32,7 +32,7 @@ class TraceRepository:
             await db.execute(
                 """
                 INSERT OR REPLACE INTO trace_records (
-                    id, agent_id, parent_agent_id, status, goal, model,
+                    trace_id, agent_id, parent_agent_id, status, goal, model,
                     total_tokens, total_cost_usd, duration_ms, trace_data
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -58,7 +58,7 @@ class TraceRepository:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT * FROM trace_records WHERE id = ?", (trace_id,)
+                "SELECT * FROM trace_records WHERE trace_id = ?", (trace_id,)
             ) as cursor:
                 row = await cursor.fetchone()
                 if not row:
@@ -74,18 +74,17 @@ class TraceRepository:
         model: str,
         prompt_tokens: int,
         completion_tokens: int,
-        cost_usd: float
+        step_cost_usd: float
     ) -> None:
         """
         Logs individual step token usage and calculated cost to token_ledger.
         """
-        total_tokens = prompt_tokens + completion_tokens
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """
                 INSERT INTO token_ledger (
-                    agent_id, step_id, model, prompt_tokens, completion_tokens, total_tokens, cost_usd
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    agent_id, step_id, model, prompt_tokens, completion_tokens, step_cost_usd
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     agent_id,
@@ -93,8 +92,7 @@ class TraceRepository:
                     model,
                     prompt_tokens,
                     completion_tokens,
-                    total_tokens,
-                    cost_usd
+                    step_cost_usd
                 )
             )
             await db.commit()
@@ -105,7 +103,7 @@ class TraceRepository:
         """
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(
-                "SELECT SUM(cost_usd) FROM token_ledger WHERE agent_id = ?", (agent_id,)
+                "SELECT SUM(step_cost_usd) FROM token_ledger WHERE agent_id = ?", (agent_id,)
             ) as cursor:
                 result = await cursor.fetchone()
                 return result[0] if result and result[0] is not None else 0.0
