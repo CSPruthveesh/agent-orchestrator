@@ -356,6 +356,28 @@ textarea:focus, select:focus, input:focus {
     background-size: 24px 24px;
 }
 
+#dag-svg {
+    width: 100%;
+    height: 100%;
+    transition: opacity 0.25s ease-in-out;
+}
+
+#dag-svg.transitioning {
+    opacity: 0.15;
+}
+
+.dag-node-group {
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+}
+
+.dag-node-group rect {
+    transition: stroke 0.3s ease, stroke-width 0.3s ease, fill 0.3s ease;
+}
+
+#dag-edges-layer path {
+    transition: d 0.3s ease, stroke 0.3s ease;
+}
+
 #dag-empty-placeholder {
     position: absolute;
     top: 50%;

@@ -208,7 +208,20 @@ document.addEventListener('DOMContentLoaded', () => {
             this.currentAgentId = agentId;
             this.lastStepId = null;
             this.activeToolStepId = null;
-            this.dagRenderer.clear();
+            
+            // Smooth fade transition for SVG viewport
+            if (this.dagRenderer && this.dagRenderer.svg) {
+                this.dagRenderer.svg.classList.add('transitioning');
+                setTimeout(() => {
+                    this.dagRenderer.clear();
+                    if (this.dagRenderer.svg) {
+                        this.dagRenderer.svg.classList.remove('transitioning');
+                    }
+                }, 150);
+            } else {
+                this.dagRenderer.clear();
+            }
+
             this.btnCancel.disabled = false;
             this.statActiveAgents.textContent = this.agentStreams.size;
 
