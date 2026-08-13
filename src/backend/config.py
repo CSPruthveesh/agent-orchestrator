@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
-    REDIS_URL: Optional[str] = None
+    REDIS_URL: str = "redis://localhost:6379/0"
     REDIS_MAX_CONNECTIONS: int = 20
 
     # SQLite Database Settings
@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     # Sandbox & Safety Execution Limits
     SANDBOX_TIMEOUT_MS: int = 5000
+    SANDBOX_MAX_CPU_TIMEOUT_MS: int = 5000
     SANDBOX_MAX_MEMORY_MB: int = 256
     MAX_AGENT_TREE_DEPTH: int = 3
     MAX_WORKERS_PER_SUPERVISOR: int = 5

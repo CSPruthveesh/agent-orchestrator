@@ -14,7 +14,7 @@ async def get_redis_pool() -> aioredis.ConnectionPool:
     global _redis_pool
     if _redis_pool is None:
         _redis_pool = aioredis.ConnectionPool.from_url(
-            settings.REDIS_URL,
+            settings.redis_connection_url,
             max_connections=settings.REDIS_MAX_CONNECTIONS,
             decode_responses=True
         )
