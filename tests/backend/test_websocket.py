@@ -11,18 +11,25 @@ async def test_websocket_manager_lifecycle():
     manager = WebSocketConnectionManager()
     agent_id = "agent-ws-test-001"
 
-    # Create mock WebSocket
-    mock_ws = AsyncMock()
-    mock_ws.accept = AsyncMock()
-    mock_ws.send_json = AsyncMock()
+    # Create mock WebSocket for agent channel
+    mock_agent_ws = AsyncMock()
+    mock_agent_ws.accept = AsyncMock()
+    mock_agent_ws.send_json = AsyncMock()
 
-    # 1. Connect WS client subscribed to agent_id
-    await manager.connect(mock_ws, agent_id)
+    # Create mock WebSocket for global channel
+    mock_global_ws = AsyncMock()
+    mock_global_ws.accept = AsyncMock()
+    mock_global_ws.send_json = AsyncMock()
+
+    # 1. Connect agent WS client
+    await manager.connect(mock_agent_ws, agent_id)
     assert manager.get_subscription_count(agent_id) == 1
-    assert manager.get_subscription_count() == 1
-    mock_ws.accept.assert_called_once()
 
-    # 2. Broadcast event to agent
+    # 2. Connect global WS client
+    await manager.connect(mock_global_ws, agent_id=None)
+    assert manager.get_subscription_count() == 2
+
+    # 3. Broadcast event to agent
     event_payload = {
         "event_type": "STEP_EXECUTION_STARTED",
         "agent_id": agent_id,
@@ -30,15 +37,17 @@ async def test_websocket_manager_lifecycle():
     }
     sent_count = await manager.broadcast_to_agent(agent_id, event_payload)
     assert sent_count == 1
-    mock_ws.send_json.assert_called_with(event_payload)
+    mock_agent_ws.send_json.assert_called_with(event_payload)
 
-    # 3. Broadcast global event
+    # 4. Broadcast global event
     global_event = {"event_type": "SYSTEM_METRIC_UPDATE", "active_workers": 4}
     global_sent = await manager.broadcast_global(global_event)
     assert global_sent == 1
+    mock_global_ws.send_json.assert_called_with(global_event)
 
-    # 4. Disconnect WS client cleanly
-    await manager.disconnect(mock_ws, agent_id)
+    # 5. Disconnect WS clients cleanly
+    await manager.disconnect(mock_agent_ws, agent_id)
+    await manager.disconnect(mock_global_ws, agent_id=None)
     assert manager.get_subscription_count(agent_id) == 0
     assert manager.get_subscription_count() == 0
 
