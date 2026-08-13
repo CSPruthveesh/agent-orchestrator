@@ -76,6 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             this.globalWs.on('WS_CONNECTED', (evt) => {
                 this.appendLog('STARTED', 'Connected to global platform event stream.');
+                this.fetchTelemetrySummary();
             });
 
             this.globalWs.on('BUDGET_UPDATE', (evt) => {
@@ -83,6 +84,25 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             this.globalWs.connect();
+            this.fetchTelemetrySummary();
+        }
+
+        async fetchTelemetrySummary() {
+            try {
+                const res = await fetch('/api/v1/telemetry/summary');
+                if (res.ok) {
+                    const data = await res.json();
+                    this.globalPlatformTokens = data.total_tokens || 0;
+                    this.globalPlatformSpendUsd = data.total_cost_usd || 0.0;
+                    this.statTotalTokens.textContent = this.globalPlatformTokens.toLocaleString();
+                    this.statTotalCost.textContent = `$${this.globalPlatformSpendUsd.toFixed(4)}`;
+                    if (data.total_agents !== undefined && data.total_agents > 0) {
+                        this.statActiveAgents.textContent = Math.max(this.agentStreams.size, data.total_agents);
+                    }
+                }
+            } catch (err) {
+                console.warn('[Dashboard] Telemetry summary fetch warning:', err);
+            }
         }
 
         updateBudgetHeader(data) {
@@ -109,7 +129,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const goal = document.getElementById('input-goal').value;
             const model = document.getElementById('select-model').value;
-            const budget = parseFloat(document.getElementById('input-budget').value) || 1.00;
+            const budgetVal = document.getElementById('input-budget').value;
+            const budget = parseFloat(budgetVal);
+
+            if (isNaN(budget) || budget <= 0) {
+                this.appendLog('FAILED', 'Please enter a valid positive dollar budget (e.g. 0.001, 1.00, 50.00).');
+                return;
+            }
 
             const availableTools = [];
             if (document.getElementById('tool-cpp-sandbox').checked) availableTools.push('cpp_sandbox');
@@ -142,6 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.agentStreams.add(agentId);
                 this.updateActiveAgentDropdown(agentId);
                 this.subscribeToAgentStream(agentId);
+                this.fetchTelemetrySummary();
 
             } catch (err) {
                 console.error('[Dashboard] Launch error:', err);
