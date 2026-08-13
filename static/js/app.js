@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     class DashboardController {
         constructor() {
             this.activeWs = null;
+            this.globalWs = null;
             this.currentAgentId = null;
             this.agentStreams = new Set();
             this.totalTokensAcc = 0;
@@ -18,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
             this.initDOM();
             this.initDAG();
             this.bindEvents();
+            this.connectGlobalStream();
         }
 
         initDOM() {
@@ -64,6 +66,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (agentId) this.subscribeToAgentStream(agentId);
                 });
             }
+        }
+
+        connectGlobalStream() {
+            // Connect to global dashboard WebSocket stream immediately on page load
+            const wsUrl = `/ws/traces/global`;
+            this.globalWs = new window.AutoReconnectingWebSocket(wsUrl);
+            
+            this.globalWs.on('WS_CONNECTED', (evt) => {
+                this.appendLog('STARTED', 'Connected to global platform event stream.');
+            });
+
+            this.globalWs.connect();
         }
 
         async handleLaunchAgent(e) {
@@ -203,7 +217,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = evt.data;
                 this.btnCancel.disabled = true;
 
-                // Update all active running nodes in DAG renderer to COMPLETED
                 if (data.status === 'COMPLETED') {
                     this.dagRenderer.nodes.forEach(node => {
                         if (node.status === 'RUNNING' || node.status === 'WAITING_FOR_TOOL') {
