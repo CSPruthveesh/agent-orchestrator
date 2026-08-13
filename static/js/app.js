@@ -87,6 +87,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         updateBudgetHeader(data) {
             if (!data) return;
+            // Ignore historical replay events to prevent re-adding tokens when re-selecting agents
+            if (data.is_replay) return;
 
             const turnTokens = data.turn_tokens || 0;
             const turnCost = data.turn_cost_usd || 0.0;
@@ -94,16 +96,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (turnTokens > 0) {
                 this.globalPlatformTokens += turnTokens;
                 this.statTotalTokens.textContent = this.globalPlatformTokens.toLocaleString();
-            } else if (data.total_tokens !== undefined && data.total_tokens !== null && data.total_tokens > 0) {
-                this.globalPlatformTokens = Math.max(this.globalPlatformTokens, data.total_tokens);
-                this.statTotalTokens.textContent = this.globalPlatformTokens.toLocaleString();
             }
 
             if (turnCost > 0) {
                 this.globalPlatformSpendUsd += turnCost;
-                this.statTotalCost.textContent = `$${this.globalPlatformSpendUsd.toFixed(4)}`;
-            } else if (data.total_spend_usd !== undefined && data.total_spend_usd !== null && data.total_spend_usd > 0) {
-                this.globalPlatformSpendUsd = Math.max(this.globalPlatformSpendUsd, data.total_spend_usd);
                 this.statTotalCost.textContent = `$${this.globalPlatformSpendUsd.toFixed(4)}`;
             }
         }

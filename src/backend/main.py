@@ -89,7 +89,7 @@ async def health_check() -> Dict[str, str]:
 async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
     """
     Real-time WebSocket endpoint streaming agent execution trace DAG events to browser dashboard.
-    Replays step history for fast (<20ms) sub-task executions cleanly.
+    Replays step history for fast (<20ms) sub-task executions cleanly without re-triggering billing increments.
     """
     await ws_manager.connect(websocket, agent_id)
     try:
@@ -117,7 +117,8 @@ async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
                             "data": {
                                 "step_id": step.step_id,
                                 "node_type": step.node_type.value,
-                                "prompt_tokens": step.prompt_tokens
+                                "prompt_tokens": step.prompt_tokens,
+                                "is_replay": True
                             }
                         }, websocket)
                     else:
@@ -129,7 +130,8 @@ async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
                             "data": {
                                 "tool_name": tool_name,
                                 "params": step.input_payload.get("params", {}),
-                                "parent_step_id": last_step_id
+                                "parent_step_id": last_step_id,
+                                "is_replay": True
                             }
                         }, websocket)
 
@@ -139,7 +141,8 @@ async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
                             "timestamp": checkpoint.updated_at,
                             "data": {
                                 "tool_name": tool_name,
-                                "output": step.output_payload
+                                "output": step.output_payload,
+                                "is_replay": True
                             }
                         }, websocket)
 
@@ -151,7 +154,8 @@ async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
                         "turn_tokens": checkpoint.accumulated_tokens,
                         "turn_cost_usd": checkpoint.accumulated_cost_usd,
                         "total_tokens": checkpoint.accumulated_tokens,
-                        "total_spend_usd": checkpoint.accumulated_cost_usd
+                        "total_spend_usd": checkpoint.accumulated_cost_usd,
+                        "is_replay": True
                     }
                 }, websocket)
 
@@ -164,7 +168,8 @@ async def websocket_agent_trace_endpoint(websocket: WebSocket, agent_id: str):
                         "data": {
                             "status": checkpoint.status.value,
                             "duration_ms": 50,
-                            "final_trace_id": agent_id
+                            "final_trace_id": agent_id,
+                            "is_replay": True
                         }
                     }, websocket)
 

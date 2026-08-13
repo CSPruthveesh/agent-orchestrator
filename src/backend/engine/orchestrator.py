@@ -180,19 +180,16 @@ class AsyncTaskGraphEngine:
                     params={"goal": config.goal, "command": "echo Sandbox Execution Success"}
                 )
 
+                # Send parent_step_id so live DAG renders connector arrow immediately
                 await self._publish_event(agent_id, "TOOL_CALL_DISPATCHED", {
                     "tool_name": tool_name,
-                    "params": tool_req.params
+                    "params": tool_req.params,
+                    "parent_step_id": step1.step_id
                 })
 
                 tool_output: Any = {"status": "SUCCESS", "message": f"Executed tool {tool_name}"}
                 if self.tool_dispatcher:
                     tool_output = await self.tool_dispatcher(tool_req)
-
-                await self._publish_event(agent_id, "TOOL_CALL_COMPLETED", {
-                    "tool_name": tool_name,
-                    "output": tool_output if isinstance(tool_output, dict) else {"result": str(tool_output)}
-                })
 
                 prompt_tokens_turn2 = max(35, len(str(tool_req.params).split()) * 4)
                 completion_tokens_turn2 = max(25, len(str(tool_output).split()) * 2)
@@ -206,6 +203,12 @@ class AsyncTaskGraphEngine:
                     prompt_tokens=prompt_tokens_turn2,
                     completion_tokens=completion_tokens_turn2
                 )
+
+                await self._publish_event(agent_id, "TOOL_CALL_COMPLETED", {
+                    "tool_name": tool_name,
+                    "step_id": step2.step_id,
+                    "output": tool_output if isinstance(tool_output, dict) else {"result": str(tool_output)}
+                })
 
                 budget_res2 = await self.budget_manager.record_usage_and_check(
                     agent_id=agent_id,
